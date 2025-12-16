@@ -283,14 +283,14 @@ class DhanHistoricalFetcher:
         self.risk_free_rate = 0.07
     
     def fetch_rolling_data(self, symbol: str, from_date: str, to_date: str, 
-                          strike_type: str = "ATM", option_type: str = "CALL"):
+                          strike_type: str = "ATM", option_type: str = "CALL", interval: str = "60"):
         """Fetch historical rolling options data"""
         try:
             security_id = DHAN_SECURITY_IDS.get(symbol, 13)
             
             payload = {
                 "exchangeSegment": "NSE_FNO",
-                "interval": "60",  # 1-hour intervals
+                "interval": interval,  # Dynamic interval (15 or 60)
                 "securityId": security_id,
                 "instrument": "OPTIDX",
                 "expiryFlag": "MONTH",
@@ -316,7 +316,7 @@ class DhanHistoricalFetcher:
             st.error(f"API Error: {str(e)}")
             return None
     
-    def process_historical_data(self, symbol: str, target_date: str, strikes: List[str]):
+    def process_historical_data(self, symbol: str, target_date: str, strikes: List[str], interval: str = "60"):
         """Process historical data for a specific date"""
         
         # Convert to datetime
@@ -337,14 +337,14 @@ class DhanHistoricalFetcher:
         for strike_type in strikes:
             status_text.text(f"Fetching {strike_type}...")
             
-            # Fetch CALL data
-            call_data = self.fetch_rolling_data(symbol, from_date, to_date, strike_type, "CALL")
+            # Fetch CALL data with interval
+            call_data = self.fetch_rolling_data(symbol, from_date, to_date, strike_type, "CALL", interval)
             current_step += 1
             progress_bar.progress(current_step / total_steps)
             time.sleep(1)
             
-            # Fetch PUT data
-            put_data = self.fetch_rolling_data(symbol, from_date, to_date, strike_type, "PUT")
+            # Fetch PUT data with interval
+            put_data = self.fetch_rolling_data(symbol, from_date, to_date, strike_type, "PUT", interval)
             current_step += 1
             progress_bar.progress(current_step / total_steps)
             time.sleep(1)
@@ -445,7 +445,8 @@ class DhanHistoricalFetcher:
             'spot_price': latest['spot_price'],
             'total_records': len(df),
             'time_range': f"{df['time'].min()} - {df['time'].max()}",
-            'strikes_count': df['strike'].nunique()
+            'strikes_count': df['strike'].nunique(),
+            'interval': f"{interval} minutes"
         }
         
         return df, meta
@@ -560,7 +561,10 @@ def create_hedging_pressure_chart(df: pd.DataFrame, spot_price: float) -> go.Fig
             color=df['hedging_pressure'],
             colorscale='RdYlGn',
             showscale=True,
-            colorbar=dict(title='Pressure %', titlefont=dict(color='white'), tickfont=dict(color='white'))
+            colorbar=dict(
+                title=dict(text='Pressure %', font=dict(color='white')),
+                tickfont=dict(color='white')
+            )
         ),
         hovertemplate='Strike: %{y}<br>Pressure: %{x:.1f}%<extra></extra>'
     ))
@@ -671,9 +675,22 @@ def main():
         
         strikes = st.multiselect(
             "Select Strikes",
-            ["ATM", "ATM+1", "ATM-1", "ATM+2", "ATM-2", "ATM+3", "ATM-3", "ATM+4", "ATM-4", "ATM+5", "ATM-5"],
-            default=["ATM", "ATM+1", "ATM-1", "ATM+2", "ATM-2"]
+            ["ATM", "ATM+1", "ATM-1", "ATM+2", "ATM-2", "ATM+3", "ATM-3", 
+             "ATM+4", "ATM-4", "ATM+5", "ATM-5", "ATM+6", "ATM-6"],
+            default=["ATM", "ATM+1", "ATM-1", "ATM+2", "ATM-2", "ATM+3", "ATM-3"]
         )
+        
+        st.markdown("---")
+        st.markdown("### ⏱️ Time Interval")
+        
+        interval = st.selectbox(
+            "Select Interval",
+            options=["15", "60"],
+            format_func=lambda x: "15 minutes" if x == "15" else "1 hour",
+            index=0  # Default to 15 minutes
+        )
+        
+        st.info(f"📊 Selected: {len(strikes)} strikes | {interval} min interval")
         
         st.markdown("---")
         
@@ -694,15 +711,15 @@ def main():
         <div class="metric-card neutral" style="margin: 20px 0;">
             <div class="metric-label">Fetching Historical Data</div>
             <div class="metric-value" style="color: #3b82f6; font-size: 1.2rem;">
-                {symbol} | {target_date} | Strikes: {', '.join(strikes)}
+                {symbol} | {target_date} | {interval} min | Strikes: {', '.join(strikes)}
             </div>
-            <div class="metric-delta">This may take 1-2 minutes...</div>
+            <div class="metric-delta">This may take 1-3 minutes...</div>
         </div>
         """, unsafe_allow_html=True)
         
         try:
             fetcher = DhanHistoricalFetcher(DhanConfig())
-            df, meta = fetcher.process_historical_data(symbol, target_date, strikes)
+            df, meta = fetcher.process_historical_data(symbol, target_date, strikes, interval)
             
             if df is None or len(df) == 0:
                 st.error("❌ No data available for the selected date. Please try a different date or check if it was a trading day.")
@@ -720,7 +737,7 @@ def main():
             total_put_oi = df_latest['put_oi'].sum()
             pcr = total_put_oi / total_call_oi if total_call_oi > 0 else 1
             
-            st.success(f"✅ Data fetched successfully! Total records: {len(df):,}")
+            st.success(f"✅ Data fetched successfully! Total records: {len(df):,} | Interval: {meta['interval']}")
             
             # Display overview metrics
             st.markdown("### 📊 Historical Data Overview")
@@ -883,15 +900,20 @@ def main():
         - 🎪 **Hedging Pressure** - Separate pressure distribution
         - 📅 **Historical Data** - Fetch data for any past trading day
         - 🕐 **Indian Standard Time** - All timestamps in IST
+        - ⏱️ **15-min Intervals** - Granular backtesting capability
+        - 🎯 **Extended Strikes** - ATM ±6 for comprehensive analysis
         
         **How to use:**
         1. Select your preferred index (NIFTY/BANKNIFTY/FINNIFTY/MIDCPNIFTY)
         2. Choose a historical date (last 30 days)
-        3. Select strikes (ATM ±5)
-        4. Click "Fetch Historical Data"
-        5. View separate charts for GEX, DEX, NET, and Hedge Pressure
+        3. Select time interval (15-min for intraday, 1-hour for swing)
+        4. Select strikes (ATM ±6)
+        5. Click "Fetch Historical Data"
+        6. View separate charts for GEX, DEX, NET, and Hedge Pressure
         
         **Data Source:** Dhan Rolling Options API
+        
+        **Backtesting:** Use 15-minute intervals to analyze intraday patterns and GEX/DEX changes throughout the trading day!
         """)
         
         st.markdown("---")
@@ -915,7 +937,8 @@ def main():
     st.markdown(f"""<div style="text-align: center; padding: 20px; color: #64748b;">
         <p style="font-family: 'JetBrains Mono', monospace; font-size: 0.8rem;">
         NYZTrade Historical GEX/DEX Dashboard | Data: Dhan Rolling API | Indian Standard Time (IST)<br>
-        Symbol: {symbol} | Separate Analysis: GEX | DEX | NET GEX+DEX | Hedge Pressure</p>
+        Symbol: {symbol if 'symbol' in locals() else 'Select'} | Separate Analysis: GEX | DEX | NET GEX+DEX | Hedge Pressure<br>
+        Backtesting with 15-min intervals for intraday analysis</p>
         <p style="font-size: 0.75rem;">⚠️ Educational purposes only. Options trading involves substantial risk.</p>
     </div>""", unsafe_allow_html=True)
 
