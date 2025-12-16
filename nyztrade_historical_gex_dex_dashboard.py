@@ -1063,114 +1063,114 @@ def main():
         tabs = st.tabs(["🎯 GEX", "📊 DEX", "⚡ NET GEX+DEX", "🎪 Hedge Pressure", "📈 Intraday Timeline", "📋 OI & Data"])
         
         with tabs[0]:
-                st.markdown("### 🎯 Gamma Exposure (GEX) Analysis")
-                st.plotly_chart(create_separate_gex_chart(df_latest, spot_price), use_container_width=True)
-                
-                col1, col2 = st.columns(2)
-                with col1:
-                    positive_gex = df_latest[df_latest['net_gex'] > 0]['net_gex'].sum()
-                    st.metric("Positive GEX", f"{positive_gex:.4f}B")
-                with col2:
-                    negative_gex = df_latest[df_latest['net_gex'] < 0]['net_gex'].sum()
-                    st.metric("Negative GEX", f"{negative_gex:.4f}B")
+            st.markdown("### 🎯 Gamma Exposure (GEX) Analysis")
+            st.plotly_chart(create_separate_gex_chart(df_latest, spot_price), use_container_width=True)
             
-            with tabs[1]:
-                st.markdown("### 📊 Delta Exposure (DEX) Analysis")
-                st.plotly_chart(create_separate_dex_chart(df_latest, spot_price), use_container_width=True)
-                
-                col1, col2 = st.columns(2)
-                with col1:
-                    positive_dex = df_latest[df_latest['net_dex'] > 0]['net_dex'].sum()
-                    st.metric("Positive DEX", f"{positive_dex:.4f}B")
-                with col2:
-                    negative_dex = df_latest[df_latest['net_dex'] < 0]['net_dex'].sum()
-                    st.metric("Negative DEX", f"{negative_dex:.4f}B")
+            col1, col2 = st.columns(2)
+            with col1:
+                positive_gex = df_latest[df_latest['net_gex'] > 0]['net_gex'].sum()
+                st.metric("Positive GEX", f"{positive_gex:.4f}B")
+            with col2:
+                negative_gex = df_latest[df_latest['net_gex'] < 0]['net_gex'].sum()
+                st.metric("Negative GEX", f"{negative_gex:.4f}B")
             
-            with tabs[2]:
-                st.markdown("### ⚡ Combined NET GEX + DEX Analysis")
-                st.plotly_chart(create_net_gex_dex_chart(df_latest, spot_price), use_container_width=True)
-                
-                st.markdown("""
-                **Interpretation:**
-                - **Positive values**: Market makers providing support/resistance
-                - **Negative values**: Volatility amplification expected
-                - **Near zero**: Gamma flip zone - critical levels
-                """)
+        with tabs[1]:
+            st.markdown("### 📊 Delta Exposure (DEX) Analysis")
+            st.plotly_chart(create_separate_dex_chart(df_latest, spot_price), use_container_width=True)
             
-            with tabs[3]:
-                st.markdown("### 🎪 Hedging Pressure Distribution")
-                st.plotly_chart(create_hedging_pressure_chart(df_latest, spot_price), use_container_width=True)
-                
-                max_pressure_strike = df_latest.loc[df_latest['hedging_pressure'].abs().idxmax(), 'strike']
-                max_pressure_value = df_latest.loc[df_latest['hedging_pressure'].abs().idxmax(), 'hedging_pressure']
-                
-                st.info(f"📍 Maximum Hedging Pressure at Strike: ₹{max_pressure_strike:,.0f} ({max_pressure_value:.1f}%)")
+            col1, col2 = st.columns(2)
+            with col1:
+                positive_dex = df_latest[df_latest['net_dex'] > 0]['net_dex'].sum()
+                st.metric("Positive DEX", f"{positive_dex:.4f}B")
+            with col2:
+                negative_dex = df_latest[df_latest['net_dex'] < 0]['net_dex'].sum()
+                st.metric("Negative DEX", f"{negative_dex:.4f}B")
             
-            with tabs[4]:
-                st.markdown("### 📈 Intraday GEX/DEX Evolution")
-                st.plotly_chart(create_intraday_timeline(df, selected_timestamp), use_container_width=True)
-                
-                st.markdown("""
-                **How to use:**
-                - **Yellow dashed line** shows your current selected time
-                - **Move the time slider** above to see how GEX/DEX changed
-                - **Watch for:**
-                  - GEX sign flips (suppression ↔ amplification)
-                  - DEX direction changes (bullish ↔ bearish)
-                  - Correlation with price movement
-                
-                **Key Insights:**
-                - **Green bars** = Positive (GEX suppression, DEX bullish)
-                - **Red bars** = Negative (GEX amplification, DEX bearish)
-                - **Height** = Magnitude of exposure
-                """)
-                
-                # Statistics by time period
-                st.markdown("### 📊 Session Statistics")
-                
-                # Divide day into sessions
-                df['hour'] = df['timestamp'].dt.hour
-                morning = df[df['hour'] < 12].groupby('timestamp')['net_gex'].sum().mean()
-                afternoon = df[df['hour'] >= 12].groupby('timestamp')['net_gex'].sum().mean()
-                
-                col1, col2 = st.columns(2)
-                with col1:
-                    morning_class = "positive" if morning > 0 else "negative"
-                    st.markdown(f"""<div class="metric-card {morning_class}">
-                        <div class="metric-label">Morning Session (9:15-12:00)</div>
-                        <div class="metric-value {morning_class}">Avg GEX: {morning:.4f}B</div>
-                        <div class="metric-delta">{'Lower volatility expected' if morning > 0 else 'Higher volatility expected'}</div>
-                    </div>""", unsafe_allow_html=True)
-                
-                with col2:
-                    afternoon_class = "positive" if afternoon > 0 else "negative"
-                    st.markdown(f"""<div class="metric-card {afternoon_class}">
-                        <div class="metric-label">Afternoon Session (12:00-15:30)</div>
-                        <div class="metric-value {afternoon_class}">Avg GEX: {afternoon:.4f}B</div>
-                        <div class="metric-delta">{'Lower volatility expected' if afternoon > 0 else 'Higher volatility expected'}</div>
-                    </div>""", unsafe_allow_html=True)
+        with tabs[2]:
+            st.markdown("### ⚡ Combined NET GEX + DEX Analysis")
+            st.plotly_chart(create_net_gex_dex_chart(df_latest, spot_price), use_container_width=True)
             
-            with tabs[5]:
-                st.markdown("### 📋 Open Interest Distribution")
-                st.plotly_chart(create_oi_distribution(df_latest, spot_price), use_container_width=True)
-                
-                st.markdown("### 📊 Complete Data Table")
-                display_df = df_latest[['strike', 'call_oi', 'put_oi', 'call_volume', 'put_volume', 
-                                       'net_gex', 'net_dex', 'hedging_pressure']].copy()
-                display_df['net_gex'] = display_df['net_gex'].apply(lambda x: f"{x:.4f}B")
-                display_df['net_dex'] = display_df['net_dex'].apply(lambda x: f"{x:.4f}B")
-                display_df['hedging_pressure'] = display_df['hedging_pressure'].apply(lambda x: f"{x:.1f}%")
-                
-                st.dataframe(display_df, use_container_width=True, hide_index=True, height=400)
-                
-                # Download button
-                csv = df.to_csv(index=False)
-                st.download_button(
-                    "📥 Download Full Historical Data (CSV)",
-                    data=csv,
-                    file_name=f"NYZTrade_Historical_{symbol}_{target_date}.csv",
-                    mime="text/csv"
-                )
+            st.markdown("""
+            **Interpretation:**
+            - **Positive values**: Market makers providing support/resistance
+            - **Negative values**: Volatility amplification expected
+            - **Near zero**: Gamma flip zone - critical levels
+            """)
+            
+        with tabs[3]:
+            st.markdown("### 🎪 Hedging Pressure Distribution")
+            st.plotly_chart(create_hedging_pressure_chart(df_latest, spot_price), use_container_width=True)
+            
+            max_pressure_strike = df_latest.loc[df_latest['hedging_pressure'].abs().idxmax(), 'strike']
+            max_pressure_value = df_latest.loc[df_latest['hedging_pressure'].abs().idxmax(), 'hedging_pressure']
+            
+            st.info(f"📍 Maximum Hedging Pressure at Strike: ₹{max_pressure_strike:,.0f} ({max_pressure_value:.1f}%)")
+            
+        with tabs[4]:
+            st.markdown("### 📈 Intraday GEX/DEX Evolution")
+            st.plotly_chart(create_intraday_timeline(df, selected_timestamp), use_container_width=True)
+            
+            st.markdown("""
+            **How to use:**
+            - **Yellow dashed line** shows your current selected time
+            - **Move the time slider** above to see how GEX/DEX changed
+            - **Watch for:**
+              - GEX sign flips (suppression ↔ amplification)
+              - DEX direction changes (bullish ↔ bearish)
+              - Correlation with price movement
+            
+            **Key Insights:**
+            - **Green bars** = Positive (GEX suppression, DEX bullish)
+            - **Red bars** = Negative (GEX amplification, DEX bearish)
+            - **Height** = Magnitude of exposure
+            """)
+            
+            # Statistics by time period
+            st.markdown("### 📊 Session Statistics")
+            
+            # Divide day into sessions
+            df['hour'] = df['timestamp'].dt.hour
+            morning = df[df['hour'] < 12].groupby('timestamp')['net_gex'].sum().mean()
+            afternoon = df[df['hour'] >= 12].groupby('timestamp')['net_gex'].sum().mean()
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                morning_class = "positive" if morning > 0 else "negative"
+                st.markdown(f"""<div class="metric-card {morning_class}">
+                    <div class="metric-label">Morning Session (9:15-12:00)</div>
+                    <div class="metric-value {morning_class}">Avg GEX: {morning:.4f}B</div>
+                    <div class="metric-delta">{'Lower volatility expected' if morning > 0 else 'Higher volatility expected'}</div>
+                </div>""", unsafe_allow_html=True)
+            
+            with col2:
+                afternoon_class = "positive" if afternoon > 0 else "negative"
+                st.markdown(f"""<div class="metric-card {afternoon_class}">
+                    <div class="metric-label">Afternoon Session (12:00-15:30)</div>
+                    <div class="metric-value {afternoon_class}">Avg GEX: {afternoon:.4f}B</div>
+                    <div class="metric-delta">{'Lower volatility expected' if afternoon > 0 else 'Higher volatility expected'}</div>
+                </div>""", unsafe_allow_html=True)
+            
+        with tabs[5]:
+            st.markdown("### 📋 Open Interest Distribution")
+            st.plotly_chart(create_oi_distribution(df_latest, spot_price), use_container_width=True)
+            
+            st.markdown("### 📊 Complete Data Table")
+            display_df = df_latest[['strike', 'call_oi', 'put_oi', 'call_volume', 'put_volume', 
+                                   'net_gex', 'net_dex', 'hedging_pressure']].copy()
+            display_df['net_gex'] = display_df['net_gex'].apply(lambda x: f"{x:.4f}B")
+            display_df['net_dex'] = display_df['net_dex'].apply(lambda x: f"{x:.4f}B")
+            display_df['hedging_pressure'] = display_df['hedging_pressure'].apply(lambda x: f"{x:.1f}%")
+            
+            st.dataframe(display_df, use_container_width=True, hide_index=True, height=400)
+            
+            # Download button
+            csv = df.to_csv(index=False)
+            st.download_button(
+                "📥 Download Full Historical Data (CSV)",
+                data=csv,
+                file_name=f"NYZTrade_Historical_{symbol}_{target_date}.csv",
+                mime="text/csv"
+            )
     
     else:
         # Initial instructions
