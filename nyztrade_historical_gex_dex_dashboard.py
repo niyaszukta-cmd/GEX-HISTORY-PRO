@@ -451,6 +451,115 @@ class DhanHistoricalFetcher:
         
         return df, meta
 
+def create_intraday_timeline(df: pd.DataFrame, selected_timestamp) -> go.Figure:
+    """Create intraday timeline of total GEX and DEX"""
+    # Aggregate by timestamp
+    timeline_df = df.groupby('timestamp').agg({
+        'net_gex': 'sum',
+        'net_dex': 'sum',
+        'spot_price': 'first'
+    }).reset_index()
+    
+    timeline_df = timeline_df.sort_values('timestamp')
+    timeline_df['time_str'] = timeline_df['timestamp'].dt.strftime('%H:%M')
+    
+    # Create subplots
+    fig = make_subplots(
+        rows=3, cols=1,
+        subplot_titles=('Total Net GEX Over Time', 'Total Net DEX Over Time', 'Spot Price Movement'),
+        vertical_spacing=0.1,
+        row_heights=[0.35, 0.35, 0.3]
+    )
+    
+    # GEX timeline
+    gex_colors = ['#10b981' if x > 0 else '#ef4444' for x in timeline_df['net_gex']]
+    fig.add_trace(
+        go.Bar(
+            x=timeline_df['timestamp'],
+            y=timeline_df['net_gex'],
+            marker_color=gex_colors,
+            name='Net GEX',
+            hovertemplate='%{x|%H:%M}<br>GEX: %{y:.4f}B<extra></extra>'
+        ),
+        row=1, col=1
+    )
+    
+    # DEX timeline
+    dex_colors = ['#10b981' if x > 0 else '#ef4444' for x in timeline_df['net_dex']]
+    fig.add_trace(
+        go.Bar(
+            x=timeline_df['timestamp'],
+            y=timeline_df['net_dex'],
+            marker_color=dex_colors,
+            name='Net DEX',
+            hovertemplate='%{x|%H:%M}<br>DEX: %{y:.4f}B<extra></extra>'
+        ),
+        row=2, col=1
+    )
+    
+    # Spot price
+    fig.add_trace(
+        go.Scatter(
+            x=timeline_df['timestamp'],
+            y=timeline_df['spot_price'],
+            mode='lines+markers',
+            line=dict(color='#3b82f6', width=2),
+            marker=dict(size=4),
+            name='Spot Price',
+            fill='tozeroy',
+            fillcolor='rgba(59, 130, 246, 0.1)',
+            hovertemplate='%{x|%H:%M}<br>Spot: ₹%{y:,.2f}<extra></extra>'
+        ),
+        row=3, col=1
+    )
+    
+    # Add vertical line at selected timestamp
+    fig.add_vline(
+        x=selected_timestamp,
+        line_dash="dash",
+        line_color="#f59e0b",
+        line_width=3,
+        row=1, col=1
+    )
+    fig.add_vline(
+        x=selected_timestamp,
+        line_dash="dash",
+        line_color="#f59e0b",
+        line_width=3,
+        row=2, col=1
+    )
+    fig.add_vline(
+        x=selected_timestamp,
+        line_dash="dash",
+        line_color="#f59e0b",
+        line_width=3,
+        row=3, col=1
+    )
+    
+    # Add annotations for key times
+    key_times = [
+        ('Open', '09:15'),
+        ('Mid', '12:00'),
+        ('Close', '15:30')
+    ]
+    
+    fig.update_layout(
+        title=dict(text="<b>📈 Intraday Evolution</b>", font=dict(size=18, color='white')),
+        template="plotly_dark",
+        paper_bgcolor='rgba(0,0,0,0)',
+        plot_bgcolor='rgba(26,35,50,0.8)',
+        height=900,
+        showlegend=False,
+        hovermode='x unified'
+    )
+    
+    fig.update_xaxes(title_text="Time (IST)", row=3, col=1)
+    fig.update_yaxes(title_text="GEX (₹B)", row=1, col=1)
+    fig.update_yaxes(title_text="DEX (₹B)", row=2, col=1)
+    fig.update_yaxes(title_text="Spot Price (₹)", row=3, col=1)
+    
+    return fig
+
 # ============================================================================
 # VISUALIZATION FUNCTIONS
 # ============================================================================
@@ -729,6 +838,119 @@ def main():
             df_latest = df.sort_values('timestamp').groupby('strike').last().reset_index()
             spot_price = df_latest['spot_price'].iloc[0]
             
+            # Get all unique timestamps for slider
+            all_timestamps = sorted(df['timestamp'].unique())
+            timestamp_options = [ts.strftime('%H:%M IST') for ts in all_timestamps]
+            
+            st.markdown("---")
+            st.markdown("### ⏱️ Time Navigation")
+            
+            # Quick jump buttons and playback controls
+            control_cols = st.columns([1, 1, 1, 1, 1, 1, 1, 1])
+            
+            with control_cols[0]:
+                if st.button("⏮️ First", use_container_width=True):
+                    st.session_state.timestamp_idx = 0
+                    st.rerun()
+            
+            with control_cols[1]:
+                if st.button("◀️ Prev", use_container_width=True):
+                    current = st.session_state.get('timestamp_idx', len(all_timestamps) - 1)
+                    st.session_state.timestamp_idx = max(0, current - 1)
+                    st.rerun()
+            
+            with control_cols[2]:
+                if st.button("🔄 Reset", use_container_width=True):
+                    st.session_state.timestamp_idx = len(all_timestamps) - 1
+                    st.rerun()
+            
+            with control_cols[3]:
+                if st.button("▶️ Next", use_container_width=True):
+                    current = st.session_state.get('timestamp_idx', len(all_timestamps) - 1)
+                    st.session_state.timestamp_idx = min(len(all_timestamps) - 1, current + 1)
+                    st.rerun()
+            
+            with control_cols[4]:
+                if st.button("⏭️ Last", use_container_width=True):
+                    st.session_state.timestamp_idx = len(all_timestamps) - 1
+                    st.rerun()
+            
+            with control_cols[5]:
+                if st.button("⏰ 9:30", use_container_width=True):
+                    # Jump to around market open
+                    morning_times = [i for i, ts in enumerate(all_timestamps) if ts.hour == 9 and ts.minute >= 30]
+                    if morning_times:
+                        st.session_state.timestamp_idx = morning_times[0]
+                        st.rerun()
+            
+            with control_cols[6]:
+                if st.button("⏰ 12:00", use_container_width=True):
+                    # Jump to noon
+                    noon_times = [i for i, ts in enumerate(all_timestamps) if ts.hour == 12]
+                    if noon_times:
+                        st.session_state.timestamp_idx = noon_times[0]
+                        st.rerun()
+            
+            with control_cols[7]:
+                if st.button("⏰ 3:15", use_container_width=True):
+                    # Jump to near close
+                    close_times = [i for i, ts in enumerate(all_timestamps) if ts.hour == 15 and ts.minute >= 15]
+                    if close_times:
+                        st.session_state.timestamp_idx = close_times[0]
+                        st.rerun()
+            
+            col1, col2, col3 = st.columns([1, 3, 1])
+            
+            with col1:
+                st.markdown(f"""<div class="metric-card neutral" style="padding: 15px;">
+                    <div class="metric-label">Start Time</div>
+                    <div class="metric-value" style="font-size: 1.2rem;">{timestamp_options[0]}</div>
+                </div>""", unsafe_allow_html=True)
+            
+            with col2:
+                # Use session state for timestamp index
+                if 'timestamp_idx' not in st.session_state:
+                    st.session_state.timestamp_idx = len(all_timestamps) - 1
+                
+                selected_timestamp_idx = st.slider(
+                    "🎯 Drag to navigate through intraday data points",
+                    min_value=0,
+                    max_value=len(all_timestamps) - 1,
+                    value=st.session_state.timestamp_idx,
+                    format="",
+                    key="time_slider"
+                )
+                
+                # Update session state
+                st.session_state.timestamp_idx = selected_timestamp_idx
+                
+                selected_timestamp = all_timestamps[selected_timestamp_idx]
+                
+                # Show progress bar
+                progress = (selected_timestamp_idx + 1) / len(all_timestamps)
+                st.progress(progress)
+                
+                st.info(f"📍 **{selected_timestamp.strftime('%H:%M:%S IST')}** | Point {selected_timestamp_idx + 1} of {len(all_timestamps)} | {progress*100:.1f}% through trading day")
+            
+            with col3:
+                st.markdown(f"""<div class="metric-card neutral" style="padding: 15px;">
+                    <div class="metric-label">End Time</div>
+                    <div class="metric-value" style="font-size: 1.2rem;">{timestamp_options[-1]}</div>
+                </div>""", unsafe_allow_html=True)
+            
+            # Filter data for selected timestamp
+            df_selected = df[df['timestamp'] == selected_timestamp].copy()
+            
+            # If no data at exact timestamp, get the closest one
+            if len(df_selected) == 0:
+                closest_idx = min(range(len(all_timestamps)), 
+                                 key=lambda i: abs((all_timestamps[i] - selected_timestamp).total_seconds()))
+                df_selected = df[df['timestamp'] == all_timestamps[closest_idx]].copy()
+            
+            # Use selected timestamp data instead of latest
+            df_latest = df_selected
+            spot_price = df_latest['spot_price'].iloc[0] if len(df_latest) > 0 else spot_price
+            
             # Calculate aggregated metrics
             total_gex = df_latest['net_gex'].sum()
             total_dex = df_latest['net_dex'].sum()
@@ -747,7 +969,7 @@ def main():
                 st.markdown(f"""<div class="metric-card neutral">
                     <div class="metric-label">Date</div>
                     <div class="metric-value" style="font-size: 1.2rem;">{target_date}</div>
-                    <div class="metric-delta">{meta['time_range']}</div>
+                    <div class="metric-delta">{selected_timestamp.strftime('%H:%M:%S IST')}</div>
                 </div>""", unsafe_allow_html=True)
             
             with cols[1]:
@@ -814,7 +1036,7 @@ def main():
             st.markdown("---")
             
             # Tabs for separate charts
-            tabs = st.tabs(["🎯 GEX", "📊 DEX", "⚡ NET GEX+DEX", "🎪 Hedge Pressure", "📋 OI & Data"])
+            tabs = st.tabs(["🎯 GEX", "📊 DEX", "⚡ NET GEX+DEX", "🎪 Hedge Pressure", "📈 Intraday Timeline", "📋 OI & Data"])
             
             with tabs[0]:
                 st.markdown("### 🎯 Gamma Exposure (GEX) Analysis")
@@ -861,6 +1083,50 @@ def main():
                 st.info(f"📍 Maximum Hedging Pressure at Strike: ₹{max_pressure_strike:,.0f} ({max_pressure_value:.1f}%)")
             
             with tabs[4]:
+                st.markdown("### 📈 Intraday GEX/DEX Evolution")
+                st.plotly_chart(create_intraday_timeline(df, selected_timestamp), use_container_width=True)
+                
+                st.markdown("""
+                **How to use:**
+                - **Yellow dashed line** shows your current selected time
+                - **Move the time slider** above to see how GEX/DEX changed
+                - **Watch for:**
+                  - GEX sign flips (suppression ↔ amplification)
+                  - DEX direction changes (bullish ↔ bearish)
+                  - Correlation with price movement
+                
+                **Key Insights:**
+                - **Green bars** = Positive (GEX suppression, DEX bullish)
+                - **Red bars** = Negative (GEX amplification, DEX bearish)
+                - **Height** = Magnitude of exposure
+                """)
+                
+                # Statistics by time period
+                st.markdown("### 📊 Session Statistics")
+                
+                # Divide day into sessions
+                df['hour'] = df['timestamp'].dt.hour
+                morning = df[df['hour'] < 12].groupby('timestamp')['net_gex'].sum().mean()
+                afternoon = df[df['hour'] >= 12].groupby('timestamp')['net_gex'].sum().mean()
+                
+                col1, col2 = st.columns(2)
+                with col1:
+                    morning_class = "positive" if morning > 0 else "negative"
+                    st.markdown(f"""<div class="metric-card {morning_class}">
+                        <div class="metric-label">Morning Session (9:15-12:00)</div>
+                        <div class="metric-value {morning_class}">Avg GEX: {morning:.4f}B</div>
+                        <div class="metric-delta">{'Lower volatility expected' if morning > 0 else 'Higher volatility expected'}</div>
+                    </div>""", unsafe_allow_html=True)
+                
+                with col2:
+                    afternoon_class = "positive" if afternoon > 0 else "negative"
+                    st.markdown(f"""<div class="metric-card {afternoon_class}">
+                        <div class="metric-label">Afternoon Session (12:00-15:30)</div>
+                        <div class="metric-value {afternoon_class}">Avg GEX: {afternoon:.4f}B</div>
+                        <div class="metric-delta">{'Lower volatility expected' if afternoon > 0 else 'Higher volatility expected'}</div>
+                    </div>""", unsafe_allow_html=True)
+            
+            with tabs[5]:
                 st.markdown("### 📋 Open Interest Distribution")
                 st.plotly_chart(create_oi_distribution(df_latest, spot_price), use_container_width=True)
                 
