@@ -566,21 +566,25 @@ def create_intraday_timeline(df: pd.DataFrame, selected_timestamp) -> go.Figure:
 
 def create_separate_gex_chart(df: pd.DataFrame, spot_price: float) -> go.Figure:
     """Separate GEX chart"""
-    colors = ['#10b981' if x > 0 else '#ef4444' for x in df['net_gex']]
+    # Sort by strike to ensure proper display
+    df_sorted = df.sort_values('strike').reset_index(drop=True)
+    colors = ['#10b981' if x > 0 else '#ef4444' for x in df_sorted['net_gex']]
     
     fig = go.Figure()
     
     fig.add_trace(go.Bar(
-        y=df['strike'],
-        x=df['net_gex'],
+        y=df_sorted['strike'],
+        x=df_sorted['net_gex'],
         orientation='h',
         marker_color=colors,
         name='Net GEX',
-        hovertemplate='Strike: %{y}<br>Net GEX: %{x:.4f}B<extra></extra>'
+        hovertemplate='Strike: %{y:,.0f}<br>Net GEX: %{x:.4f}B<extra></extra>',
+        showlegend=False
     ))
     
     fig.add_hline(y=spot_price, line_dash="dash", line_color="#06b6d4", line_width=3,
-                  annotation_text=f"Spot: {spot_price:,.2f}", annotation_position="top right")
+                  annotation_text=f"Spot: {spot_price:,.2f}", annotation_position="top right",
+                  annotation=dict(font=dict(size=12, color="white")))
     
     fig.update_layout(
         title=dict(text="<b>🎯 Gamma Exposure (GEX)</b>", font=dict(size=18, color='white')),
@@ -589,29 +593,36 @@ def create_separate_gex_chart(df: pd.DataFrame, spot_price: float) -> go.Figure:
         template="plotly_dark",
         paper_bgcolor='rgba(0,0,0,0)',
         plot_bgcolor='rgba(26,35,50,0.8)',
-        height=600,
-        showlegend=False
+        height=700,
+        showlegend=False,
+        hovermode='closest',
+        xaxis=dict(gridcolor='rgba(128,128,128,0.2)', showgrid=True),
+        yaxis=dict(gridcolor='rgba(128,128,128,0.2)', showgrid=True, autorange=True),
+        margin=dict(l=80, r=80, t=80, b=80)
     )
     
     return fig
 
 def create_separate_dex_chart(df: pd.DataFrame, spot_price: float) -> go.Figure:
     """Separate DEX chart"""
-    colors = ['#10b981' if x > 0 else '#ef4444' for x in df['net_dex']]
+    df_sorted = df.sort_values('strike').reset_index(drop=True)
+    colors = ['#10b981' if x > 0 else '#ef4444' for x in df_sorted['net_dex']]
     
     fig = go.Figure()
     
     fig.add_trace(go.Bar(
-        y=df['strike'],
-        x=df['net_dex'],
+        y=df_sorted['strike'],
+        x=df_sorted['net_dex'],
         orientation='h',
         marker_color=colors,
         name='Net DEX',
-        hovertemplate='Strike: %{y}<br>Net DEX: %{x:.4f}B<extra></extra>'
+        hovertemplate='Strike: %{y:,.0f}<br>Net DEX: %{x:.4f}B<extra></extra>',
+        showlegend=False
     ))
     
     fig.add_hline(y=spot_price, line_dash="dash", line_color="#06b6d4", line_width=3,
-                  annotation_text=f"Spot: {spot_price:,.2f}", annotation_position="top right")
+                  annotation_text=f"Spot: {spot_price:,.2f}", annotation_position="top right",
+                  annotation=dict(font=dict(size=12, color="white")))
     
     fig.update_layout(
         title=dict(text="<b>📊 Delta Exposure (DEX)</b>", font=dict(size=18, color='white')),
@@ -620,30 +631,37 @@ def create_separate_dex_chart(df: pd.DataFrame, spot_price: float) -> go.Figure:
         template="plotly_dark",
         paper_bgcolor='rgba(0,0,0,0)',
         plot_bgcolor='rgba(26,35,50,0.8)',
-        height=600,
-        showlegend=False
+        height=700,
+        showlegend=False,
+        hovermode='closest',
+        xaxis=dict(gridcolor='rgba(128,128,128,0.2)', showgrid=True),
+        yaxis=dict(gridcolor='rgba(128,128,128,0.2)', showgrid=True, autorange=True),
+        margin=dict(l=80, r=80, t=80, b=80)
     )
     
     return fig
 
 def create_net_gex_dex_chart(df: pd.DataFrame, spot_price: float) -> go.Figure:
     """Combined NET GEX + DEX chart"""
-    df['net_gex_dex'] = df['net_gex'] + df['net_dex']
-    colors = ['#10b981' if x > 0 else '#ef4444' for x in df['net_gex_dex']]
+    df_sorted = df.sort_values('strike').reset_index(drop=True)
+    df_sorted['net_gex_dex'] = df_sorted['net_gex'] + df_sorted['net_dex']
+    colors = ['#10b981' if x > 0 else '#ef4444' for x in df_sorted['net_gex_dex']]
     
     fig = go.Figure()
     
     fig.add_trace(go.Bar(
-        y=df['strike'],
-        x=df['net_gex_dex'],
+        y=df_sorted['strike'],
+        x=df_sorted['net_gex_dex'],
         orientation='h',
         marker_color=colors,
         name='Net GEX+DEX',
-        hovertemplate='Strike: %{y}<br>Net GEX+DEX: %{x:.4f}B<extra></extra>'
+        hovertemplate='Strike: %{y:,.0f}<br>Net GEX+DEX: %{x:.4f}B<extra></extra>',
+        showlegend=False
     ))
     
     fig.add_hline(y=spot_price, line_dash="dash", line_color="#06b6d4", line_width=3,
-                  annotation_text=f"Spot: {spot_price:,.2f}", annotation_position="top right")
+                  annotation_text=f"Spot: {spot_price:,.2f}", annotation_position="top right",
+                  annotation=dict(font=dict(size=12, color="white")))
     
     fig.update_layout(
         title=dict(text="<b>⚡ Combined NET GEX + DEX</b>", font=dict(size=18, color='white')),
@@ -652,34 +670,50 @@ def create_net_gex_dex_chart(df: pd.DataFrame, spot_price: float) -> go.Figure:
         template="plotly_dark",
         paper_bgcolor='rgba(0,0,0,0)',
         plot_bgcolor='rgba(26,35,50,0.8)',
-        height=600,
-        showlegend=False
+        height=700,
+        showlegend=False,
+        hovermode='closest',
+        xaxis=dict(gridcolor='rgba(128,128,128,0.2)', showgrid=True),
+        yaxis=dict(gridcolor='rgba(128,128,128,0.2)', showgrid=True, autorange=True),
+        margin=dict(l=80, r=80, t=80, b=80)
     )
     
     return fig
 
 def create_hedging_pressure_chart(df: pd.DataFrame, spot_price: float) -> go.Figure:
     """Separate Hedging Pressure chart"""
+    df_sorted = df.sort_values('strike').reset_index(drop=True)
+    
     fig = go.Figure()
     
     fig.add_trace(go.Bar(
-        y=df['strike'],
-        x=df['hedging_pressure'],
+        y=df_sorted['strike'],
+        x=df_sorted['hedging_pressure'],
         orientation='h',
         marker=dict(
-            color=df['hedging_pressure'],
+            color=df_sorted['hedging_pressure'],
             colorscale='RdYlGn',
             showscale=True,
             colorbar=dict(
-                title=dict(text='Pressure %', font=dict(color='white')),
-                tickfont=dict(color='white')
-            )
+                title=dict(text='Pressure %', font=dict(color='white', size=12)),
+                tickfont=dict(color='white'),
+                x=1.02,
+                len=0.7,
+                thickness=20
+            ),
+            cmin=-100,
+            cmax=100
         ),
-        hovertemplate='Strike: %{y}<br>Pressure: %{x:.1f}%<extra></extra>'
+        hovertemplate='Strike: %{y:,.0f}<br>Pressure: %{x:.1f}%<extra></extra>',
+        showlegend=False
     ))
     
     fig.add_hline(y=spot_price, line_dash="dash", line_color="#06b6d4", line_width=3,
-                  annotation_text=f"Spot: {spot_price:,.2f}", annotation_position="top right")
+                  annotation_text=f"Spot: {spot_price:,.2f}", annotation_position="top right",
+                  annotation=dict(font=dict(size=12, color="white")))
+    
+    # Add zero line
+    fig.add_vline(x=0, line_dash="dot", line_color="gray", line_width=1)
     
     fig.update_layout(
         title=dict(text="<b>🎪 Hedging Pressure Distribution</b>", font=dict(size=18, color='white')),
@@ -688,35 +722,60 @@ def create_hedging_pressure_chart(df: pd.DataFrame, spot_price: float) -> go.Fig
         template="plotly_dark",
         paper_bgcolor='rgba(0,0,0,0)',
         plot_bgcolor='rgba(26,35,50,0.8)',
-        height=600,
-        showlegend=False
+        height=700,
+        showlegend=False,
+        hovermode='closest',
+        xaxis=dict(
+            gridcolor='rgba(128,128,128,0.2)', 
+            showgrid=True,
+            zeroline=True,
+            zerolinecolor='rgba(128,128,128,0.5)',
+            zerolinewidth=2,
+            range=[-110, 110]
+        ),
+        yaxis=dict(
+            gridcolor='rgba(128,128,128,0.2)', 
+            showgrid=True, 
+            autorange=True
+        ),
+        margin=dict(l=80, r=120, t=80, b=80)
     )
     
     return fig
 
 def create_oi_distribution(df: pd.DataFrame, spot_price: float) -> go.Figure:
     """OI Distribution chart"""
+    df_sorted = df.sort_values('strike').reset_index(drop=True)
+    
     fig = go.Figure()
     
     fig.add_trace(go.Bar(
-        y=df['strike'],
-        x=df['call_oi'],
+        y=df_sorted['strike'],
+        x=df_sorted['call_oi'],
         orientation='h',
         name='Call OI',
         marker_color='#10b981',
-        opacity=0.7
+        opacity=0.7,
+        hovertemplate='Strike: %{y:,.0f}<br>Call OI: %{x:,.0f}<extra></extra>'
     ))
     
     fig.add_trace(go.Bar(
-        y=df['strike'],
-        x=-df['put_oi'],
+        y=df_sorted['strike'],
+        x=-df_sorted['put_oi'],
         orientation='h',
         name='Put OI',
         marker_color='#ef4444',
-        opacity=0.7
+        opacity=0.7,
+        hovertemplate='Strike: %{y:,.0f}<br>Put OI: %{customdata:,.0f}<extra></extra>',
+        customdata=df_sorted['put_oi']
     ))
     
-    fig.add_hline(y=spot_price, line_dash="dash", line_color="#06b6d4", line_width=2)
+    fig.add_hline(y=spot_price, line_dash="dash", line_color="#06b6d4", line_width=2,
+                  annotation_text=f"Spot: {spot_price:,.2f}", annotation_position="top right",
+                  annotation=dict(font=dict(size=12, color="white")))
+    
+    # Add zero line
+    fig.add_vline(x=0, line_dash="dot", line_color="white", line_width=1)
     
     fig.update_layout(
         title=dict(text="<b>📋 Open Interest Distribution</b>", font=dict(size=16, color='white')),
@@ -725,9 +784,28 @@ def create_oi_distribution(df: pd.DataFrame, spot_price: float) -> go.Figure:
         template="plotly_dark",
         paper_bgcolor='rgba(0,0,0,0)',
         plot_bgcolor='rgba(26,35,50,0.8)',
-        height=450,
+        height=500,
         barmode='overlay',
-        legend=dict(orientation='h', yanchor='bottom', y=1.02, font=dict(color='white'))
+        legend=dict(
+            orientation='h', 
+            yanchor='bottom', 
+            y=1.02, 
+            font=dict(color='white')
+        ),
+        hovermode='closest',
+        xaxis=dict(
+            gridcolor='rgba(128,128,128,0.2)', 
+            showgrid=True,
+            zeroline=True,
+            zerolinecolor='rgba(255,255,255,0.3)',
+            zerolinewidth=2
+        ),
+        yaxis=dict(
+            gridcolor='rgba(128,128,128,0.2)', 
+            showgrid=True,
+            autorange=True
+        ),
+        margin=dict(l=80, r=80, t=80, b=80)
     )
     
     return fig
