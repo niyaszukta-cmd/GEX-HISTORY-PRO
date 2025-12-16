@@ -810,235 +810,259 @@ def main():
         ist_now = datetime.now(IST)
         st.info(f"Current IST: {ist_now.strftime('%Y-%m-%d %H:%M:%S %Z')}")
     
-    # Main content
+    # Store configuration in session state for persistence
     if fetch_button:
+        st.session_state.fetch_config = {
+            'symbol': symbol,
+            'target_date': target_date,
+            'strikes': strikes,
+            'interval': interval
+        }
+        st.session_state.data_fetched = False  # Trigger fresh fetch
+    
+    # Main content
+    if fetch_button or (hasattr(st.session_state, 'fetch_config') and st.session_state.get('data_fetched', False)):
+        # Get config from session state
+        if hasattr(st.session_state, 'fetch_config'):
+            config = st.session_state.fetch_config
+            symbol = config['symbol']
+            target_date = config['target_date']
+            strikes = config['strikes']
+            interval = config['interval']
+        
         if not strikes:
             st.error("❌ Please select at least one strike")
             return
         
-        st.markdown(f"""
-        <div class="metric-card neutral" style="margin: 20px 0;">
-            <div class="metric-label">Fetching Historical Data</div>
-            <div class="metric-value" style="color: #3b82f6; font-size: 1.2rem;">
-                {symbol} | {target_date} | {interval} min | Strikes: {', '.join(strikes)}
+        # Only fetch if not already in session state or if explicitly requested
+        if not st.session_state.get('data_fetched', False) or 'df_data' not in st.session_state:
+            st.markdown(f"""
+            <div class="metric-card neutral" style="margin: 20px 0;">
+                <div class="metric-label">Fetching Historical Data</div>
+                <div class="metric-value" style="color: #3b82f6; font-size: 1.2rem;">
+                    {symbol} | {target_date} | {interval} min | Strikes: {', '.join(strikes)}
+                </div>
+                <div class="metric-delta">This may take 1-3 minutes...</div>
             </div>
-            <div class="metric-delta">This may take 1-3 minutes...</div>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        try:
-            fetcher = DhanHistoricalFetcher(DhanConfig())
-            df, meta = fetcher.process_historical_data(symbol, target_date, strikes, interval)
+            """, unsafe_allow_html=True)
             
-            if df is None or len(df) == 0:
-                st.error("❌ No data available for the selected date. Please try a different date or check if it was a trading day.")
+            try:
+                fetcher = DhanHistoricalFetcher(DhanConfig())
+                df, meta = fetcher.process_historical_data(symbol, target_date, strikes, interval)
+                
+                if df is None or len(df) == 0:
+                    st.error("❌ No data available for the selected date. Please try a different date or check if it was a trading day.")
+                    return
+                
+                # Store in session state
+                st.session_state.df_data = df
+                st.session_state.meta_data = meta
+                st.session_state.data_fetched = True
+                st.rerun()
+            
+            except Exception as e:
+                st.error(f"❌ Error: {str(e)}")
+                st.info("Please check your API credentials and try again. Make sure the selected date was a trading day.")
                 return
+        
+        # Retrieve from session state
+        df = st.session_state.df_data
+        meta = st.session_state.meta_data
+        
+        # Get all unique timestamps for slider
+        all_timestamps = sorted(df['timestamp'].unique())
+        timestamp_options = [ts.strftime('%H:%M IST') for ts in all_timestamps]
+        
+        st.success(f"✅ Data fetched successfully! Total records: {len(df):,} | Interval: {meta['interval']}")
+        
+        st.markdown("---")
+        st.markdown("---")
+        st.markdown("### ⏱️ Time Navigation")
             
-            # Get latest data point for spot price
-            df_latest = df.sort_values('timestamp').groupby('strike').last().reset_index()
-            spot_price = df_latest['spot_price'].iloc[0]
+        # Quick jump buttons and playback controls
+        control_cols = st.columns([1, 1, 1, 1, 1, 1, 1, 1])
+        
+        with control_cols[0]:
+            if st.button("⏮️ First", use_container_width=True):
+                st.session_state.timestamp_idx = 0
+        
+        with control_cols[1]:
+            if st.button("◀️ Prev", use_container_width=True):
+                current = st.session_state.get('timestamp_idx', len(all_timestamps) - 1)
+                st.session_state.timestamp_idx = max(0, current - 1)
+        
+        with control_cols[2]:
+            if st.button("🔄 Reset", use_container_width=True):
+                st.session_state.timestamp_idx = len(all_timestamps) - 1
+        
+        with control_cols[3]:
+            if st.button("▶️ Next", use_container_width=True):
+                current = st.session_state.get('timestamp_idx', len(all_timestamps) - 1)
+                st.session_state.timestamp_idx = min(len(all_timestamps) - 1, current + 1)
+        
+        with control_cols[4]:
+            if st.button("⏭️ Last", use_container_width=True):
+                st.session_state.timestamp_idx = len(all_timestamps) - 1
+        
+        with control_cols[5]:
+            if st.button("⏰ 9:30", use_container_width=True):
+                # Jump to around market open
+                morning_times = [i for i, ts in enumerate(all_timestamps) if ts.hour == 9 and ts.minute >= 30]
+                if morning_times:
+                    st.session_state.timestamp_idx = morning_times[0]
+        
+        with control_cols[6]:
+            if st.button("⏰ 12:00", use_container_width=True):
+                # Jump to noon
+                noon_times = [i for i, ts in enumerate(all_timestamps) if ts.hour == 12]
+                if noon_times:
+                    st.session_state.timestamp_idx = noon_times[0]
+        
+        with control_cols[7]:
+            if st.button("⏰ 3:15", use_container_width=True):
+                # Jump to near close
+                close_times = [i for i, ts in enumerate(all_timestamps) if ts.hour == 15 and ts.minute >= 15]
+                if close_times:
+                    st.session_state.timestamp_idx = close_times[0]
+        
+        col1, col2, col3 = st.columns([1, 3, 1])
+        
+        with col1:
+            st.markdown(f"""<div class="metric-card neutral" style="padding: 15px;">
+                <div class="metric-label">Start Time</div>
+                <div class="metric-value" style="font-size: 1.2rem;">{timestamp_options[0]}</div>
+            </div>""", unsafe_allow_html=True)
+        
+        with col2:
+            # Use session state for timestamp index
+            if 'timestamp_idx' not in st.session_state:
+                st.session_state.timestamp_idx = len(all_timestamps) - 1
             
-            # Get all unique timestamps for slider
-            all_timestamps = sorted(df['timestamp'].unique())
-            timestamp_options = [ts.strftime('%H:%M IST') for ts in all_timestamps]
+            selected_timestamp_idx = st.slider(
+                "🎯 Drag to navigate through intraday data points",
+                min_value=0,
+                max_value=len(all_timestamps) - 1,
+                value=st.session_state.timestamp_idx,
+                format="",
+                key="time_slider"
+            )
             
-            st.markdown("---")
-            st.markdown("### ⏱️ Time Navigation")
+            # Update session state
+            st.session_state.timestamp_idx = selected_timestamp_idx
             
-            # Quick jump buttons and playback controls
-            control_cols = st.columns([1, 1, 1, 1, 1, 1, 1, 1])
+            selected_timestamp = all_timestamps[selected_timestamp_idx]
             
-            with control_cols[0]:
-                if st.button("⏮️ First", use_container_width=True):
-                    st.session_state.timestamp_idx = 0
-                    st.rerun()
+            # Show progress bar
+            progress = (selected_timestamp_idx + 1) / len(all_timestamps)
+            st.progress(progress)
             
-            with control_cols[1]:
-                if st.button("◀️ Prev", use_container_width=True):
-                    current = st.session_state.get('timestamp_idx', len(all_timestamps) - 1)
-                    st.session_state.timestamp_idx = max(0, current - 1)
-                    st.rerun()
-            
-            with control_cols[2]:
-                if st.button("🔄 Reset", use_container_width=True):
-                    st.session_state.timestamp_idx = len(all_timestamps) - 1
-                    st.rerun()
-            
-            with control_cols[3]:
-                if st.button("▶️ Next", use_container_width=True):
-                    current = st.session_state.get('timestamp_idx', len(all_timestamps) - 1)
-                    st.session_state.timestamp_idx = min(len(all_timestamps) - 1, current + 1)
-                    st.rerun()
-            
-            with control_cols[4]:
-                if st.button("⏭️ Last", use_container_width=True):
-                    st.session_state.timestamp_idx = len(all_timestamps) - 1
-                    st.rerun()
-            
-            with control_cols[5]:
-                if st.button("⏰ 9:30", use_container_width=True):
-                    # Jump to around market open
-                    morning_times = [i for i, ts in enumerate(all_timestamps) if ts.hour == 9 and ts.minute >= 30]
-                    if morning_times:
-                        st.session_state.timestamp_idx = morning_times[0]
-                        st.rerun()
-            
-            with control_cols[6]:
-                if st.button("⏰ 12:00", use_container_width=True):
-                    # Jump to noon
-                    noon_times = [i for i, ts in enumerate(all_timestamps) if ts.hour == 12]
-                    if noon_times:
-                        st.session_state.timestamp_idx = noon_times[0]
-                        st.rerun()
-            
-            with control_cols[7]:
-                if st.button("⏰ 3:15", use_container_width=True):
-                    # Jump to near close
-                    close_times = [i for i, ts in enumerate(all_timestamps) if ts.hour == 15 and ts.minute >= 15]
-                    if close_times:
-                        st.session_state.timestamp_idx = close_times[0]
-                        st.rerun()
-            
-            col1, col2, col3 = st.columns([1, 3, 1])
-            
-            with col1:
-                st.markdown(f"""<div class="metric-card neutral" style="padding: 15px;">
-                    <div class="metric-label">Start Time</div>
-                    <div class="metric-value" style="font-size: 1.2rem;">{timestamp_options[0]}</div>
-                </div>""", unsafe_allow_html=True)
-            
-            with col2:
-                # Use session state for timestamp index
-                if 'timestamp_idx' not in st.session_state:
-                    st.session_state.timestamp_idx = len(all_timestamps) - 1
-                
-                selected_timestamp_idx = st.slider(
-                    "🎯 Drag to navigate through intraday data points",
-                    min_value=0,
-                    max_value=len(all_timestamps) - 1,
-                    value=st.session_state.timestamp_idx,
-                    format="",
-                    key="time_slider"
-                )
-                
-                # Update session state
-                st.session_state.timestamp_idx = selected_timestamp_idx
-                
-                selected_timestamp = all_timestamps[selected_timestamp_idx]
-                
-                # Show progress bar
-                progress = (selected_timestamp_idx + 1) / len(all_timestamps)
-                st.progress(progress)
-                
-                st.info(f"📍 **{selected_timestamp.strftime('%H:%M:%S IST')}** | Point {selected_timestamp_idx + 1} of {len(all_timestamps)} | {progress*100:.1f}% through trading day")
-            
-            with col3:
-                st.markdown(f"""<div class="metric-card neutral" style="padding: 15px;">
-                    <div class="metric-label">End Time</div>
-                    <div class="metric-value" style="font-size: 1.2rem;">{timestamp_options[-1]}</div>
-                </div>""", unsafe_allow_html=True)
-            
-            # Filter data for selected timestamp
-            df_selected = df[df['timestamp'] == selected_timestamp].copy()
-            
-            # If no data at exact timestamp, get the closest one
-            if len(df_selected) == 0:
-                closest_idx = min(range(len(all_timestamps)), 
-                                 key=lambda i: abs((all_timestamps[i] - selected_timestamp).total_seconds()))
-                df_selected = df[df['timestamp'] == all_timestamps[closest_idx]].copy()
-            
-            # Use selected timestamp data instead of latest
-            df_latest = df_selected
-            spot_price = df_latest['spot_price'].iloc[0] if len(df_latest) > 0 else spot_price
-            
-            # Calculate aggregated metrics
-            total_gex = df_latest['net_gex'].sum()
-            total_dex = df_latest['net_dex'].sum()
-            total_net = total_gex + total_dex
-            total_call_oi = df_latest['call_oi'].sum()
-            total_put_oi = df_latest['put_oi'].sum()
-            pcr = total_put_oi / total_call_oi if total_call_oi > 0 else 1
-            
-            st.success(f"✅ Data fetched successfully! Total records: {len(df):,} | Interval: {meta['interval']}")
-            
-            # Display overview metrics
-            st.markdown("### 📊 Historical Data Overview")
-            cols = st.columns(6)
-            
-            with cols[0]:
-                st.markdown(f"""<div class="metric-card neutral">
-                    <div class="metric-label">Date</div>
-                    <div class="metric-value" style="font-size: 1.2rem;">{target_date}</div>
-                    <div class="metric-delta">{selected_timestamp.strftime('%H:%M:%S IST')}</div>
-                </div>""", unsafe_allow_html=True)
-            
-            with cols[1]:
-                st.markdown(f"""<div class="metric-card neutral">
-                    <div class="metric-label">Spot Price</div>
-                    <div class="metric-value">₹{spot_price:,.2f}</div>
-                    <div class="metric-delta">@ Latest Data</div>
-                </div>""", unsafe_allow_html=True)
-            
-            with cols[2]:
-                gex_class = "positive" if total_gex > 0 else "negative"
-                st.markdown(f"""<div class="metric-card {gex_class}">
-                    <div class="metric-label">Total Net GEX</div>
-                    <div class="metric-value {gex_class}">{total_gex:.4f}B</div>
-                    <div class="metric-delta">{'Suppression' if total_gex > 0 else 'Amplification'}</div>
-                </div>""", unsafe_allow_html=True)
-            
-            with cols[3]:
-                dex_class = "positive" if total_dex > 0 else "negative"
-                st.markdown(f"""<div class="metric-card {dex_class}">
-                    <div class="metric-label">Total Net DEX</div>
-                    <div class="metric-value {dex_class}">{total_dex:.4f}B</div>
-                    <div class="metric-delta">{'Bullish' if total_dex > 0 else 'Bearish'}</div>
-                </div>""", unsafe_allow_html=True)
-            
-            with cols[4]:
-                net_class = "positive" if total_net > 0 else "negative"
-                st.markdown(f"""<div class="metric-card {net_class}">
-                    <div class="metric-label">GEX + DEX</div>
-                    <div class="metric-value {net_class}">{total_net:.4f}B</div>
-                    <div class="metric-delta">Combined Signal</div>
-                </div>""", unsafe_allow_html=True)
-            
-            with cols[5]:
-                pcr_class = "positive" if pcr > 1 else "negative"
-                st.markdown(f"""<div class="metric-card {pcr_class}">
-                    <div class="metric-label">Put/Call Ratio</div>
-                    <div class="metric-value {pcr_class}">{pcr:.2f}</div>
-                    <div class="metric-delta">{'Bearish' if pcr > 1.2 else 'Bullish' if pcr < 0.8 else 'Neutral'}</div>
-                </div>""", unsafe_allow_html=True)
-            
-            st.markdown("<br>", unsafe_allow_html=True)
-            
-            # Signal badges
-            cols = st.columns(4)
-            with cols[0]:
-                gex_signal = "🟢 GEX SUPPRESSION" if total_gex > 0 else "🔴 GEX AMPLIFICATION"
-                gex_badge = "bullish" if total_gex > 0 else "bearish"
-                st.markdown(f'<div class="signal-badge {gex_badge}">{gex_signal}</div>', unsafe_allow_html=True)
-            
-            with cols[1]:
-                dex_signal = "🟢 DEX BULLISH" if total_dex > 0 else "🔴 DEX BEARISH"
-                dex_badge = "bullish" if total_dex > 0 else "bearish"
-                st.markdown(f'<div class="signal-badge {dex_badge}">{dex_signal}</div>', unsafe_allow_html=True)
-            
-            with cols[2]:
-                net_signal = "🟢 NET POSITIVE" if total_net > 0 else "🔴 NET NEGATIVE"
-                net_badge = "bullish" if total_net > 0 else "bearish"
-                st.markdown(f'<div class="signal-badge {net_badge}">{net_signal}</div>', unsafe_allow_html=True)
-            
-            with cols[3]:
-                st.markdown(f'<div class="signal-badge volatile">📊 {meta["strikes_count"]} Strikes Analyzed</div>', unsafe_allow_html=True)
-            
-            st.markdown("---")
-            
-            # Tabs for separate charts
-            tabs = st.tabs(["🎯 GEX", "📊 DEX", "⚡ NET GEX+DEX", "🎪 Hedge Pressure", "📈 Intraday Timeline", "📋 OI & Data"])
-            
-            with tabs[0]:
+            st.info(f"📍 **{selected_timestamp.strftime('%H:%M:%S IST')}** | Point {selected_timestamp_idx + 1} of {len(all_timestamps)} | {progress*100:.1f}% through trading day")
+        
+        with col3:
+            st.markdown(f"""<div class="metric-card neutral" style="padding: 15px;">
+                <div class="metric-label">End Time</div>
+                <div class="metric-value" style="font-size: 1.2rem;">{timestamp_options[-1]}</div>
+            </div>""", unsafe_allow_html=True)
+        
+        # Filter data for selected timestamp
+        df_selected = df[df['timestamp'] == selected_timestamp].copy()
+        
+        # If no data at exact timestamp, get the closest one
+        if len(df_selected) == 0:
+            closest_idx = min(range(len(all_timestamps)), 
+                             key=lambda i: abs((all_timestamps[i] - selected_timestamp).total_seconds()))
+            df_selected = df[df['timestamp'] == all_timestamps[closest_idx]].copy()
+        
+        # Use selected timestamp data
+        df_latest = df_selected
+        spot_price = df_latest['spot_price'].iloc[0] if len(df_latest) > 0 else 0
+        
+        # Calculate aggregated metrics
+        total_gex = df_latest['net_gex'].sum()
+        total_dex = df_latest['net_dex'].sum()
+        total_net = total_gex + total_dex
+        total_call_oi = df_latest['call_oi'].sum()
+        total_put_oi = df_latest['put_oi'].sum()
+        pcr = total_put_oi / total_call_oi if total_call_oi > 0 else 1
+        
+        # Display overview metrics
+        st.markdown("### 📊 Historical Data Overview")
+        cols = st.columns(6)
+        
+        with cols[0]:
+            st.markdown(f"""<div class="metric-card neutral">
+                <div class="metric-label">Date</div>
+                <div class="metric-value" style="font-size: 1.2rem;">{target_date}</div>
+                <div class="metric-delta">{selected_timestamp.strftime('%H:%M:%S IST')}</div>
+            </div>""", unsafe_allow_html=True)
+        
+        with cols[1]:
+            st.markdown(f"""<div class="metric-card neutral">
+                <div class="metric-label">Spot Price</div>
+                <div class="metric-value">₹{spot_price:,.2f}</div>
+                <div class="metric-delta">@ Selected Time</div>
+            </div>""", unsafe_allow_html=True)
+        
+        with cols[2]:
+            gex_class = "positive" if total_gex > 0 else "negative"
+            st.markdown(f"""<div class="metric-card {gex_class}">
+                <div class="metric-label">Total Net GEX</div>
+                <div class="metric-value {gex_class}">{total_gex:.4f}B</div>
+                <div class="metric-delta">{'Suppression' if total_gex > 0 else 'Amplification'}</div>
+            </div>""", unsafe_allow_html=True)
+        
+        with cols[3]:
+            dex_class = "positive" if total_dex > 0 else "negative"
+            st.markdown(f"""<div class="metric-card {dex_class}">
+                <div class="metric-label">Total Net DEX</div>
+                <div class="metric-value {dex_class}">{total_dex:.4f}B</div>
+                <div class="metric-delta">{'Bullish' if total_dex > 0 else 'Bearish'}</div>
+            </div>""", unsafe_allow_html=True)
+        
+        with cols[4]:
+            net_class = "positive" if total_net > 0 else "negative"
+            st.markdown(f"""<div class="metric-card {net_class}">
+                <div class="metric-label">GEX + DEX</div>
+                <div class="metric-value {net_class}">{total_net:.4f}B</div>
+                <div class="metric-delta">Combined Signal</div>
+            </div>""", unsafe_allow_html=True)
+        
+        with cols[5]:
+            pcr_class = "positive" if pcr > 1 else "negative"
+            st.markdown(f"""<div class="metric-card {pcr_class}">
+                <div class="metric-label">Put/Call Ratio</div>
+                <div class="metric-value {pcr_class}">{pcr:.2f}</div>
+                <div class="metric-delta">{'Bearish' if pcr > 1.2 else 'Bullish' if pcr < 0.8 else 'Neutral'}</div>
+            </div>""", unsafe_allow_html=True)
+        
+        st.markdown("<br>", unsafe_allow_html=True)
+        
+        # Signal badges
+        cols = st.columns(4)
+        with cols[0]:
+            gex_signal = "🟢 GEX SUPPRESSION" if total_gex > 0 else "🔴 GEX AMPLIFICATION"
+            gex_badge = "bullish" if total_gex > 0 else "bearish"
+            st.markdown(f'<div class="signal-badge {gex_badge}">{gex_signal}</div>', unsafe_allow_html=True)
+        
+        with cols[1]:
+            dex_signal = "🟢 DEX BULLISH" if total_dex > 0 else "🔴 DEX BEARISH"
+            dex_badge = "bullish" if total_dex > 0 else "bearish"
+            st.markdown(f'<div class="signal-badge {dex_badge}">{dex_signal}</div>', unsafe_allow_html=True)
+        
+        with cols[2]:
+            net_signal = "🟢 NET POSITIVE" if total_net > 0 else "🔴 NET NEGATIVE"
+            net_badge = "bullish" if total_net > 0 else "bearish"
+            st.markdown(f'<div class="signal-badge {net_badge}">{net_signal}</div>', unsafe_allow_html=True)
+        
+        with cols[3]:
+            st.markdown(f'<div class="signal-badge volatile">📊 {len(df_latest)} Strikes at {selected_timestamp.strftime("%H:%M")}</div>', unsafe_allow_html=True)
+        
+        st.markdown("---")
+        
+        # Tabs for separate charts
+        tabs = st.tabs(["🎯 GEX", "📊 DEX", "⚡ NET GEX+DEX", "🎪 Hedge Pressure", "📈 Intraday Timeline", "📋 OI & Data"])
+        
+        with tabs[0]:
                 st.markdown("### 🎯 Gamma Exposure (GEX) Analysis")
                 st.plotly_chart(create_separate_gex_chart(df_latest, spot_price), use_container_width=True)
                 
@@ -1147,10 +1171,6 @@ def main():
                     file_name=f"NYZTrade_Historical_{symbol}_{target_date}.csv",
                     mime="text/csv"
                 )
-            
-        except Exception as e:
-            st.error(f"❌ Error: {str(e)}")
-            st.info("Please check your API credentials and try again. Make sure the selected date was a trading day.")
     
     else:
         # Initial instructions
