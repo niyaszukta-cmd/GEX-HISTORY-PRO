@@ -209,7 +209,8 @@ st.markdown("""
 @dataclass
 class DhanConfig:
     client_id: str = "1100480354"
-    access_token: str = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzUxMiJ9.eyJpc3MiOiJkaGFuIiwicGFydG5lcklkIjoiIiwiZXhwIjoxNzY2MDU1NDA2LCJhcHBfaWQiOiJjOTNkM2UwOSIsImlhdCI6MTc2NTk2OTAwNiwidG9rZW5Db25zdW1lclR5cGUiOiJBUFAiLCJ3ZWJob29rVXJsIjoiIiwiZGhhbkNsaWVudElkIjoiMTEwMDQ4MDM1NCJ9.ehq9obDqz9DtUyttf5UBriJqnNMUMsCCLfJ9EJy-oXz3vQAMrbw9w_g83RCtOuHW_7JHA5uIpqIQ4UNbJIB46w"
+    access_token: str = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzUxMiJ9.eyJpc3MiOiJkaGFuIiwicGFydG5lcklkIjoiIiwiZXhwIjoxNzY1OTYzMzk2LCJhcHBfaWQiOiJjOTNkM2UwOSIsImlhdCI6MTc2NTg3Njk5NiwidG9rZW5Db25zdW1lclR5cGUiOiJBUFAiLCJ3ZWJob29rVXJsIjoiIiwiZGhhbkNsaWVudElkIjoiMTEwMDQ4MDM1NCJ9.K93qVFYO2XrMJ-Jn4rY2autNZ444tc-AzYtaxVUsjRfsjW7NhfQom58vzuSMVI6nRMMB_sa7fCtWE5JIvk75yw"
+
 DHAN_SECURITY_IDS = {
     "NIFTY": 13, "BANKNIFTY": 25, "FINNIFTY": 27, "MIDCPNIFTY": 442
 }
@@ -431,6 +432,30 @@ class DhanHistoricalFetcher:
         
         df = pd.DataFrame(all_data)
         
+        # Sort by timestamp for flow calculations
+        df = df.sort_values(['strike', 'timestamp']).reset_index(drop=True)
+        
+        # Calculate GEX Flow and DEX Flow (change from previous timestamp)
+        df['call_gex_flow'] = 0.0
+        df['put_gex_flow'] = 0.0
+        df['net_gex_flow'] = 0.0
+        df['call_dex_flow'] = 0.0
+        df['put_dex_flow'] = 0.0
+        df['net_dex_flow'] = 0.0
+        
+        for strike in df['strike'].unique():
+            strike_mask = df['strike'] == strike
+            strike_data = df[strike_mask].copy()
+            
+            if len(strike_data) > 1:
+                # Calculate flow as difference from previous timestamp
+                df.loc[strike_mask, 'call_gex_flow'] = strike_data['call_gex'].diff().fillna(0)
+                df.loc[strike_mask, 'put_gex_flow'] = strike_data['put_gex'].diff().fillna(0)
+                df.loc[strike_mask, 'net_gex_flow'] = strike_data['net_gex'].diff().fillna(0)
+                df.loc[strike_mask, 'call_dex_flow'] = strike_data['call_dex'].diff().fillna(0)
+                df.loc[strike_mask, 'put_dex_flow'] = strike_data['put_dex'].diff().fillna(0)
+                df.loc[strike_mask, 'net_dex_flow'] = strike_data['net_dex'].diff().fillna(0)
+        
         # Calculate hedging pressure
         max_gex = df['net_gex'].abs().max()
         df['hedging_pressure'] = (df['net_gex'] / max_gex * 100) if max_gex > 0 else 0
@@ -556,6 +581,143 @@ def create_intraday_timeline(df: pd.DataFrame, selected_timestamp) -> go.Figure:
     fig.update_yaxes(title_text="GEX (₹B)", row=1, col=1)
     fig.update_yaxes(title_text="DEX (₹B)", row=2, col=1)
     fig.update_yaxes(title_text="Spot Price (₹)", row=3, col=1)
+    
+    return fig
+
+def create_gex_flow_chart(df: pd.DataFrame, spot_price: float) -> go.Figure:
+    """Create GEX Flow chart showing inflow/outflow"""
+    fig = go.Figure()
+    
+    # Add call GEX flow
+    fig.add_trace(go.Bar(
+        y=df['strike'],
+        x=df['call_gex_flow'],
+        orientation='h',
+        name='Call GEX Flow',
+        marker_color='rgba(16, 185, 129, 0.6)',
+        hovertemplate='Strike: %{y}<br>Call Flow: %{x:.4f}B<extra></extra>'
+    ))
+    
+    # Add put GEX flow
+    fig.add_trace(go.Bar(
+        y=df['strike'],
+        x=df['put_gex_flow'],
+        orientation='h',
+        name='Put GEX Flow',
+        marker_color='rgba(239, 68, 68, 0.6)',
+        hovertemplate='Strike: %{y}<br>Put Flow: %{x:.4f}B<extra></extra>'
+    ))
+    
+    # Add spot price line
+    fig.add_hline(
+        y=spot_price,
+        line_dash="dash",
+        line_color="#3b82f6",
+        line_width=2,
+        annotation_text=f"Spot: ₹{spot_price:,.0f}",
+        annotation_position="right"
+    )
+    
+    fig.update_layout(
+        title=dict(text="<b>🌊 GEX Flow Distribution</b>", font=dict(size=18, color='white')),
+        xaxis_title="GEX Flow (₹B)",
+        yaxis_title="Strike Price",
+        template="plotly_dark",
+        paper_bgcolor='rgba(0,0,0,0)',
+        plot_bgcolor='rgba(26,35,50,0.8)',
+        height=600,
+        barmode='relative',
+        hovermode='y unified',
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+    )
+    
+    return fig
+
+def create_dex_flow_chart(df: pd.DataFrame, spot_price: float) -> go.Figure:
+    """Create DEX Flow chart showing directional flow"""
+    fig = go.Figure()
+    
+    # Add call DEX flow
+    fig.add_trace(go.Bar(
+        y=df['strike'],
+        x=df['call_dex_flow'],
+        orientation='h',
+        name='Call DEX Flow',
+        marker_color='rgba(16, 185, 129, 0.6)',
+        hovertemplate='Strike: %{y}<br>Call Flow: %{x:.4f}B<extra></extra>'
+    ))
+    
+    # Add put DEX flow
+    fig.add_trace(go.Bar(
+        y=df['strike'],
+        x=df['put_dex_flow'],
+        orientation='h',
+        name='Put DEX Flow',
+        marker_color='rgba(239, 68, 68, 0.6)',
+        hovertemplate='Strike: %{y}<br>Put Flow: %{x:.4f}B<extra></extra>'
+    ))
+    
+    # Add spot price line
+    fig.add_hline(
+        y=spot_price,
+        line_dash="dash",
+        line_color="#3b82f6",
+        line_width=2,
+        annotation_text=f"Spot: ₹{spot_price:,.0f}",
+        annotation_position="right"
+    )
+    
+    fig.update_layout(
+        title=dict(text="<b>🌊 DEX Flow Distribution</b>", font=dict(size=18, color='white')),
+        xaxis_title="DEX Flow (₹B)",
+        yaxis_title="Strike Price",
+        template="plotly_dark",
+        paper_bgcolor='rgba(0,0,0,0)',
+        plot_bgcolor='rgba(26,35,50,0.8)',
+        height=600,
+        barmode='relative',
+        hovermode='y unified',
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+    )
+    
+    return fig
+
+def create_net_flow_chart(df: pd.DataFrame, spot_price: float) -> go.Figure:
+    """Create combined Net Flow chart"""
+    fig = go.Figure()
+    
+    # Net GEX Flow
+    gex_flow_colors = ['#10b981' if x > 0 else '#ef4444' for x in df['net_gex_flow']]
+    fig.add_trace(go.Bar(
+        y=df['strike'],
+        x=df['net_gex_flow'],
+        orientation='h',
+        name='Net GEX Flow',
+        marker_color=gex_flow_colors,
+        opacity=0.7,
+        hovertemplate='Strike: %{y}<br>GEX Flow: %{x:.4f}B<extra></extra>'
+    ))
+    
+    # Add spot price line
+    fig.add_hline(
+        y=spot_price,
+        line_dash="dash",
+        line_color="#3b82f6",
+        line_width=2,
+        annotation_text=f"Spot: ₹{spot_price:,.0f}",
+        annotation_position="right"
+    )
+    
+    fig.update_layout(
+        title=dict(text="<b>💫 Net GEX Flow</b>", font=dict(size=18, color='white')),
+        xaxis_title="Net Flow (₹B)",
+        yaxis_title="Strike Price",
+        template="plotly_dark",
+        paper_bgcolor='rgba(0,0,0,0)',
+        plot_bgcolor='rgba(26,35,50,0.8)',
+        height=600,
+        hovermode='y unified'
+    )
     
     return fig
 
@@ -871,9 +1033,9 @@ def main():
         
         interval = st.selectbox(
             "Select Interval",
-            options=["15", "60"],
-            format_func=lambda x: "15 minutes" if x == "15" else "1 hour",
-            index=0  # Default to 15 minutes
+            options=["5", "15", "60"],
+            format_func=lambda x: "5 minutes" if x == "5" else "15 minutes" if x == "15" else "1 hour",
+            index=0  # Default to 5 minutes
         )
         
         st.info(f"📊 Selected: {len(strikes)} strikes | {interval} min interval")
@@ -1137,7 +1299,7 @@ def main():
         st.markdown("---")
         
         # Tabs for separate charts
-        tabs = st.tabs(["🎯 GEX", "📊 DEX", "⚡ NET GEX+DEX", "🎪 Hedge Pressure", "📈 Intraday Timeline", "📋 OI & Data"])
+        tabs = st.tabs(["🎯 GEX", "📊 DEX", "⚡ NET GEX+DEX", "🎪 Hedge Pressure", "🌊 GEX Flow", "🌊 DEX Flow", "💫 Net Flow", "📈 Intraday Timeline", "📋 OI & Data"])
         
         with tabs[0]:
             st.markdown("### 🎯 Gamma Exposure (GEX) Analysis")
@@ -1182,8 +1344,155 @@ def main():
             max_pressure_value = df_latest.loc[df_latest['hedging_pressure'].abs().idxmax(), 'hedging_pressure']
             
             st.info(f"📍 Maximum Hedging Pressure at Strike: ₹{max_pressure_strike:,.0f} ({max_pressure_value:.1f}%)")
-            
+        
         with tabs[4]:
+            st.markdown("### 🌊 GEX Flow Analysis")
+            st.plotly_chart(create_gex_flow_chart(df_latest, spot_price), use_container_width=True)
+            
+            # Calculate flow metrics
+            total_gex_inflow = df_latest[df_latest['net_gex_flow'] > 0]['net_gex_flow'].sum()
+            total_gex_outflow = df_latest[df_latest['net_gex_flow'] < 0]['net_gex_flow'].sum()
+            net_gex_flow = total_gex_inflow + total_gex_outflow
+            
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                flow_class = "positive" if total_gex_inflow > abs(total_gex_outflow) else "negative"
+                st.markdown(f"""<div class="metric-card positive">
+                    <div class="metric-label">GEX Inflow</div>
+                    <div class="metric-value positive">{total_gex_inflow:.4f}B</div>
+                    <div class="metric-delta">Building Positions</div>
+                </div>""", unsafe_allow_html=True)
+            
+            with col2:
+                st.markdown(f"""<div class="metric-card negative">
+                    <div class="metric-label">GEX Outflow</div>
+                    <div class="metric-value negative">{total_gex_outflow:.4f}B</div>
+                    <div class="metric-delta">Reducing Positions</div>
+                </div>""", unsafe_allow_html=True)
+            
+            with col3:
+                net_class = "positive" if net_gex_flow > 0 else "negative"
+                st.markdown(f"""<div class="metric-card {net_class}">
+                    <div class="metric-label">Net GEX Flow</div>
+                    <div class="metric-value {net_class}">{net_gex_flow:.4f}B</div>
+                    <div class="metric-delta">{'Accumulation' if net_gex_flow > 0 else 'Distribution'}</div>
+                </div>""", unsafe_allow_html=True)
+            
+            st.markdown("""
+            **GEX Flow Interpretation:**
+            - **Positive Flow (Green)**: Market makers building gamma hedges → Expect lower volatility
+            - **Negative Flow (Red)**: Market makers reducing gamma hedges → Expect higher volatility
+            - **Large inflows** near strikes indicate strong hedging activity
+            - **Flow reversal** can signal regime changes
+            """)
+        
+        with tabs[5]:
+            st.markdown("### 🌊 DEX Flow Analysis")
+            st.plotly_chart(create_dex_flow_chart(df_latest, spot_price), use_container_width=True)
+            
+            # Calculate DEX flow metrics
+            total_dex_inflow = df_latest[df_latest['net_dex_flow'] > 0]['net_dex_flow'].sum()
+            total_dex_outflow = df_latest[df_latest['net_dex_flow'] < 0]['net_dex_flow'].sum()
+            net_dex_flow = total_dex_inflow + total_dex_outflow
+            
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.markdown(f"""<div class="metric-card positive">
+                    <div class="metric-label">DEX Inflow</div>
+                    <div class="metric-value positive">{total_dex_inflow:.4f}B</div>
+                    <div class="metric-delta">Bullish Positioning</div>
+                </div>""", unsafe_allow_html=True)
+            
+            with col2:
+                st.markdown(f"""<div class="metric-card negative">
+                    <div class="metric-label">DEX Outflow</div>
+                    <div class="metric-value negative">{total_dex_outflow:.4f}B</div>
+                    <div class="metric-delta">Bearish Positioning</div>
+                </div>""", unsafe_allow_html=True)
+            
+            with col3:
+                net_class = "positive" if net_dex_flow > 0 else "negative"
+                st.markdown(f"""<div class="metric-card {net_class}">
+                    <div class="metric-label">Net DEX Flow</div>
+                    <div class="metric-value {net_class}">{net_dex_flow:.4f}B</div>
+                    <div class="metric-delta">{'Bullish Bias' if net_dex_flow > 0 else 'Bearish Bias'}</div>
+                </div>""", unsafe_allow_html=True)
+            
+            st.markdown("""
+            **DEX Flow Interpretation:**
+            - **Positive Flow (Green)**: Net buying of calls or selling of puts → Bullish sentiment
+            - **Negative Flow (Red)**: Net buying of puts or selling of calls → Bearish sentiment
+            - **Strong flow** indicates directional conviction
+            - **Flow divergence** from price can signal reversal
+            """)
+        
+        with tabs[6]:
+            st.markdown("### 💫 Net Flow Analysis (GEX + DEX)")
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                st.markdown("#### GEX Flow")
+                st.plotly_chart(create_net_flow_chart(df_latest, spot_price), use_container_width=True)
+            
+            with col2:
+                st.markdown("#### DEX Flow")
+                # Create DEX flow chart similar to GEX
+                fig_dex = go.Figure()
+                dex_flow_colors = ['#10b981' if x > 0 else '#ef4444' for x in df_latest['net_dex_flow']]
+                fig_dex.add_trace(go.Bar(
+                    y=df_latest['strike'],
+                    x=df_latest['net_dex_flow'],
+                    orientation='h',
+                    marker_color=dex_flow_colors,
+                    opacity=0.7,
+                    hovertemplate='Strike: %{y}<br>DEX Flow: %{x:.4f}B<extra></extra>'
+                ))
+                fig_dex.add_hline(y=spot_price, line_dash="dash", line_color="#3b82f6", line_width=2)
+                fig_dex.update_layout(
+                    title=dict(text="<b>💫 Net DEX Flow</b>", font=dict(size=18, color='white')),
+                    xaxis_title="Net Flow (₹B)",
+                    yaxis_title="Strike Price",
+                    template="plotly_dark",
+                    paper_bgcolor='rgba(0,0,0,0)',
+                    plot_bgcolor='rgba(26,35,50,0.8)',
+                    height=600,
+                    hovermode='y unified'
+                )
+                st.plotly_chart(fig_dex, use_container_width=True)
+            
+            # Combined analysis
+            st.markdown("### 🎯 Combined Flow Signals")
+            
+            gex_signal = "Building" if net_gex_flow > 0 else "Reducing"
+            dex_signal = "Bullish" if net_dex_flow > 0 else "Bearish"
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                st.markdown(f"""
+                **Current Flow Regime:**
+                - GEX Flow: **{gex_signal}** ({net_gex_flow:.4f}B)
+                - DEX Flow: **{dex_signal}** ({net_dex_flow:.4f}B)
+                """)
+            
+            with col2:
+                if net_gex_flow > 0 and net_dex_flow > 0:
+                    st.success("✅ **Bullish + Low Vol** → Ideal for bull spreads, covered calls")
+                elif net_gex_flow < 0 and net_dex_flow > 0:
+                    st.warning("⚠️ **Bullish + High Vol** → Long calls, be cautious")
+                elif net_gex_flow > 0 and net_dex_flow < 0:
+                    st.warning("⚠️ **Bearish + Low Vol** → Bear spreads, selling premium")
+                else:
+                    st.error("⚡ **Bearish + High Vol** → High risk, long puts or stay out")
+            
+            st.markdown("""
+            **Trading Based on Flow:**
+            1. **Strong GEX Inflow + Bullish DEX** → Buy calls, market likely to grind higher with low volatility
+            2. **GEX Outflow + Bullish DEX** → Explosive upside possible, buy ATM calls
+            3. **GEX Inflow + Bearish DEX** → Rangebound bearish, sell call spreads
+            4. **GEX Outflow + Bearish DEX** → Sharp downside risk, buy puts or stay flat
+            """)
+        
+        with tabs[7]:
             st.markdown("### 📈 Intraday GEX/DEX Evolution")
             st.plotly_chart(create_intraday_timeline(df, selected_timestamp), use_container_width=True)
             
@@ -1226,8 +1535,8 @@ def main():
                     <div class="metric-value {afternoon_class}">Avg GEX: {afternoon:.4f}B</div>
                     <div class="metric-delta">{'Lower volatility expected' if afternoon > 0 else 'Higher volatility expected'}</div>
                 </div>""", unsafe_allow_html=True)
-            
-        with tabs[5]:
+        
+        with tabs[8]:
             st.markdown("### 📋 Open Interest Distribution")
             st.plotly_chart(create_oi_distribution(df_latest, spot_price), use_container_width=True)
             
@@ -1254,29 +1563,36 @@ def main():
         st.info("""
         👋 **Welcome to NYZTrade Historical GEX/DEX Dashboard!**
         
-        This dashboard provides **separate analysis** of historical options data:
+        This dashboard provides **comprehensive analysis** of historical options data:
         
         **Features:**
         - 🎯 **GEX (Gamma Exposure)** - Separate detailed analysis
         - 📊 **DEX (Delta Exposure)** - Separate detailed analysis  
         - ⚡ **NET GEX + DEX** - Combined exposure view
         - 🎪 **Hedging Pressure** - Separate pressure distribution
+        - 🌊 **GEX Flow** - Track gamma accumulation/distribution
+        - 🌊 **DEX Flow** - Monitor directional positioning changes
+        - 💫 **Net Flow** - Combined flow analysis with trading signals
+        - 📈 **Intraday Timeline** - See evolution throughout the day
         - 📅 **Historical Data** - Fetch data for any past trading day
         - 🕐 **Indian Standard Time** - All timestamps in IST
-        - ⏱️ **15-min Intervals** - Granular backtesting capability
+        - ⏱️ **5/15/60-min Intervals** - Ultra-granular backtesting capability
         - 🎯 **Extended Strikes** - ATM ±6 for comprehensive analysis
         
         **How to use:**
         1. Select your preferred index (NIFTY/BANKNIFTY/FINNIFTY/MIDCPNIFTY)
         2. Choose a historical date (last 30 days)
-        3. Select time interval (15-min for intraday, 1-hour for swing)
+        3. Select time interval (5-min for scalping, 15-min for intraday, 60-min for swing)
         4. Select strikes (ATM ±6)
         5. Click "Fetch Historical Data"
-        6. View separate charts for GEX, DEX, NET, and Hedge Pressure
+        6. Use time slider to navigate through the trading day
+        7. View separate charts for GEX, DEX, Flow, and more
         
         **Data Source:** Dhan Rolling Options API
         
-        **Backtesting:** Use 15-minute intervals to analyze intraday patterns and GEX/DEX changes throughout the trading day!
+        **Backtesting:** Use 5-minute intervals for scalping analysis, 15-minute for intraday patterns, and track GEX/DEX flow changes!
+        
+        **NEW: Flow Analysis** - Track how market makers adjust positions minute-by-minute!
         """)
         
         st.markdown("---")
@@ -1300,8 +1616,8 @@ def main():
     st.markdown(f"""<div style="text-align: center; padding: 20px; color: #64748b;">
         <p style="font-family: 'JetBrains Mono', monospace; font-size: 0.8rem;">
         NYZTrade Historical GEX/DEX Dashboard | Data: Dhan Rolling API | Indian Standard Time (IST)<br>
-        Symbol: {symbol if 'symbol' in locals() else 'Select'} | Separate Analysis: GEX | DEX | NET GEX+DEX | Hedge Pressure<br>
-        Backtesting with 15-min intervals for intraday analysis</p>
+        Symbol: {symbol if 'symbol' in locals() else 'Select'} | Analysis: GEX | DEX | NET GEX+DEX | Hedge Pressure | Flow Analysis<br>
+        Ultra-granular backtesting with 5-min intervals | GEX/DEX Flow tracking for position changes</p>
         <p style="font-size: 0.75rem;">⚠️ Educational purposes only. Options trading involves substantial risk.</p>
     </div>""", unsafe_allow_html=True)
 
