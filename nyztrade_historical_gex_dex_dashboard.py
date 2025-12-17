@@ -209,7 +209,7 @@ st.markdown("""
 @dataclass
 class DhanConfig:
     client_id: str = "1100480354"
-    access_token: str = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzUxMiJ9.eyJpc3MiOiJkaGFuIiwicGFydG5lcklkIjoiIiwiZXhwIjoxNzY2MDU1NDA2LCJhcHBfaWQiOiJjOTNkM2UwOSIsImlhdCI6MTc2NTk2OTAwNiwidG9rZW5Db25zdW1lclR5cGUiOiJBUFAiLCJ3ZWJob29rVXJsIjoiIiwiZGhhbkNsaWVudElkIjoiMTEwMDQ4MDM1NCJ9.ehq9obDqz9DtUyttf5UBriJqnNMUMsCCLfJ9EJy-oXz3vQAMrbw9w_g83RCtOuHW_7JHA5uIpqIQ4UNbJIB46w"
+    access_token: str = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzUxMiJ9.eyJpc3MiOiJkaGFuIiwicGFydG5lcklkIjoiIiwiZXhwIjoxNzY1OTYzMzk2LCJhcHBfaWQiOiJjOTNkM2UwOSIsImlhdCI6MTc2NTg3Njk5NiwidG9rZW5Db25zdW1lclR5cGUiOiJBUFAiLCJ3ZWJob29rVXJsIjoiIiwiZGhhbkNsaWVudElkIjoiMTEwMDQ4MDM1NCJ9.K93qVFYO2XrMJ-Jn4rY2autNZ444tc-AzYtaxVUsjRfsjW7NhfQom58vzuSMVI6nRMMB_sa7fCtWE5JIvk75yw"
 
 DHAN_SECURITY_IDS = {
     "NIFTY": 13, "BANKNIFTY": 25, "FINNIFTY": 27, "MIDCPNIFTY": 442
@@ -1005,15 +1005,66 @@ def main():
         st.markdown("---")
         st.markdown("### 📅 Historical Date Selection")
         
-        # Date picker
-        max_date = datetime.now().date()
-        min_date = max_date - timedelta(days=30)
+        # Date range selector
+        date_range_option = st.selectbox(
+            "Select Date Range",
+            ["Last 30 Days", "Last 60 Days", "Last 90 Days", "Last 6 Months", "Custom Range"],
+            index=0
+        )
         
-        selected_date = st.date_input(
-            "Select Date",
-            value=max_date - timedelta(days=1),
-            min_value=min_date,
-            max_value=max_date
+        if date_range_option == "Custom Range":
+            st.info("💡 Select any date range up to 6 months back")
+            col1, col2 = st.columns(2)
+            with col1:
+                start_date = st.date_input(
+                    "Start Date",
+                    value=datetime.now() - timedelta(days=30),
+                    max_value=datetime.now(),
+                    min_value=datetime.now() - timedelta(days=180)
+                )
+            with col2:
+                end_date = st.date_input(
+                    "End Date",
+                    value=datetime.now(),
+                    max_value=datetime.now(),
+                    min_value=start_date
+                )
+            
+            # Generate list of trading days in range
+            date_list = pd.date_range(start=start_date, end=end_date, freq='D')
+            # Filter to exclude weekends (API may not have data)
+            date_list = [d for d in date_list if d.weekday() < 5]  # Mon-Fri only
+            
+        else:
+            # Predefined ranges
+            if date_range_option == "Last 30 Days":
+                days_back = 30
+            elif date_range_option == "Last 60 Days":
+                days_back = 60
+            elif date_range_option == "Last 90 Days":
+                days_back = 90
+            else:  # Last 6 Months
+                days_back = 180
+            
+            date_list = pd.date_range(
+                end=datetime.now(),
+                periods=days_back,
+                freq='D'
+            )
+            date_list = [d for d in date_list if d.weekday() < 5]
+        
+        # Convert to date objects for selector
+        available_dates = [d.date() for d in date_list]
+        
+        # Show date range info
+        if len(available_dates) > 0:
+            st.caption(f"📊 {len(available_dates)} trading days available | From {available_dates[0]} to {available_dates[-1]}")
+        
+        selected_date = st.selectbox(
+            "Select Trading Day",
+            options=available_dates,
+            index=len(available_dates)-1 if len(available_dates) > 0 else 0,  # Default to most recent
+            format_func=lambda x: x.strftime('%Y-%m-%d (%A)')
         )
         
         target_date = selected_date.strftime('%Y-%m-%d')
@@ -1574,25 +1625,33 @@ def main():
         - 🌊 **DEX Flow** - Monitor directional positioning changes
         - 💫 **Net Flow** - Combined flow analysis with trading signals
         - 📈 **Intraday Timeline** - See evolution throughout the day
-        - 📅 **Historical Data** - Fetch data for any past trading day
+        - 📅 **Flexible Date Ranges** - 30/60/90/180 days or custom
         - 🕐 **Indian Standard Time** - All timestamps in IST
         - ⏱️ **5/15/60-min Intervals** - Ultra-granular backtesting capability
         - 🎯 **Extended Strikes** - ATM ±6 for comprehensive analysis
         
         **How to use:**
-        1. Select your preferred index (NIFTY/BANKNIFTY/FINNIFTY/MIDCPNIFTY)
-        2. Choose a historical date (last 30 days)
-        3. Select time interval (5-min for scalping, 15-min for intraday, 60-min for swing)
-        4. Select strikes (ATM ±6)
-        5. Click "Fetch Historical Data"
-        6. Use time slider to navigate through the trading day
-        7. View separate charts for GEX, DEX, Flow, and more
+        1. Select date range (Last 30/60/90 days or Custom)
+        2. Choose specific trading day from dropdown
+        3. Select your preferred index (NIFTY/BANKNIFTY/FINNIFTY/MIDCPNIFTY)
+        4. Select time interval (5-min for scalping, 15-min for intraday, 60-min for swing)
+        5. Select strikes (ATM ±6)
+        6. Click "Fetch Historical Data"
+        7. Use time slider to navigate through the trading day
+        8. View separate charts for GEX, DEX, Flow, and more
+        
+        **Date Ranges Available:**
+        - Last 30 Days (default)
+        - Last 60 Days (2 months)
+        - Last 90 Days (3 months)
+        - Last 180 Days (6 months)
+        - Custom Range (any dates within 6 months)
         
         **Data Source:** Dhan Rolling Options API
         
-        **Backtesting:** Use 5-minute intervals for scalping analysis, 15-minute for intraday patterns, and track GEX/DEX flow changes!
+        **Backtesting:** Use 5-minute intervals for scalping analysis, 15-minute for intraday patterns, and track GEX/DEX flow changes across multiple months!
         
-        **NEW: Flow Analysis** - Track how market makers adjust positions minute-by-minute!
+        **NEW: Extended Historical Data** - Analyze patterns across 2, 3, or even 6 months!
         """)
         
         st.markdown("---")
